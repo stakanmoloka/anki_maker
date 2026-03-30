@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["main"] # Запускать при пуше в ветку main
+    branches: ["master"] # Запускать при пуше в ветку main
 
 permissions:
   contents: read
