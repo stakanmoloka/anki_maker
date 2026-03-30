@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anki .apkg maker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f11;
+    --surface: #18181c;
+    --surface2: #222228;
+    --border: rgba(255,255,255,0.08);
+    --border2: rgba(255,255,255,0.14);
+    --text: #e8e8f0;
+    --muted: #888898;
+    --accent: #7c6af7;
+    --accent2: #a598ff;
+    --success: #3ecf8e;
+    --danger: #f06060;
+    --radius: 10px;
+    --radius-sm: 6px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  .page {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  header {
+    margin-bottom: 2rem;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), #c084fc);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    color: var(--text);
+  }
+
+  header p {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 1px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-head {
+    padding: 9px 14px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-head span {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--muted);
+  }
+
+  .panel-head .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .panel-head .dot.green { background: var(--success); }
+
+  textarea {
+    flex: 1;
+    border: none;
+    outline: none;
+    resize: none;
+    padding: 14px;
+    font-size: 12.5px;
+    line-height: 1.75;
+    background: transparent;
+    color: var(--text);
+    font-family: inherit;
+    height: 320px;
+  }
+
+  textarea::placeholder { color: var(--muted); }
+
+  .deck-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 1rem;
+  }
+
+  .deck-row label {
+    font-size: 12.5px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .deck-row input {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--text);
+    outline: none;
+    font-family: inherit;
+    transition: border-color 0.15s;
+  }
+
+  .deck-row input:focus { border-color: var(--accent); }
+
+  .btns {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+  }
+
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 8px 18px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    border: 1px solid var(--border2);
+    background: var(--surface2);
+    color: var(--text);
+    transition: background 0.12s, border-color 0.12s;
+  }
+
+  button:hover { background: #2e2e38; border-color: rgba(255,255,255,0.2); }
+  button:active { transform: scale(0.97); }
+
+  button.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 0 20px rgba(124,106,247,0.25);
+  }
+
+  button.primary:hover { background: var(--accent2); }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  .status {
+    font-size: 12.5px;
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 1rem;
+    display: none;
+  }
+
+  .status.ok { background: rgba(62,207,142,0.1); color: var(--success); border: 1px solid rgba(62,207,142,0.2); }
+  .status.err { background: rgba(240,96,96,0.1); color: var(--danger); border: 1px solid rgba(240,96,96,0.2); }
+  .status.loading { background: rgba(124,106,247,0.1); color: var(--accent2); border: 1px solid rgba(124,106,247,0.2); }
+
+  .preview-wrap {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    display: none;
+  }
+
+  .preview-head {
+    padding: 9px 14px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .count-badge {
+    background: var(--accent);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 20px;
+    letter-spacing: 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 12.5px;
+  }
+
+  th {
+    padding: 9px 14px;
+    text-align: left;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--muted);
+  }
+
+  th:first-child { width: 36px; }
+  th:nth-child(2) { width: 46%; }
+
+  td {
+    padding: 10px 14px;
+    vertical-align: top;
+    border-bottom: 1px solid var(--border);
+    line-height: 1.55;
+    color: var(--text);
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.025); }
+
+  td.num { color: var(--muted); font-size: 11px; text-align: right; }
+  td.back-cell { color: var(--muted); white-space: pre-line; font-size: 12px; }
+
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid rgba(124,106,247,0.3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 600px) {
+    .grid { grid-template-columns: 1fr; }
+    textarea { height: 220px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="logo">🃏</div>
+    <div>
+      <h1>Anki .apkg maker</h1>
+      <p>Вставь список слов → скачай готовый deck для Anki Desktop</p>
+    </div>
+  </header>
+
+  <div class="deck-row">
+    <label>Название колоды:</label>
+    <input type="text" id="deckName" value="My Vocabulary" placeholder="My Vocabulary" />
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="dot"></span>
+        <span>Вставь список слов</span>
+      </div>
+      <textarea id="inp" placeholder="1.  **Fresh start** [frɛʃ stɑːrt] — Новый старт / Чистый лист.
+    *   Sentence: &quot;We're gonna drop it down there just get a whole fresh start, Morty.&quot;
+    *   Translation: Мы сбросим её туда и начнем всё с чистого листа, Морти.
+
+2.  **Take it easy** [teɪk ɪt ˈiːzi] — Не принимай близко к сердцу.
+    *   Sentence: &quot;Come on, Morty. Just take it easy, Morty.&quot;
+    *   Translation: Да ладно тебе, Морти. Просто полегче, Морти."></textarea>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <span class="dot green"></span>
+        <span>Предпросмотр карточек</span>
+      </div>
+      <textarea id="preview-text" readonly placeholder="Здесь появится предпросмотр..."></textarea>
+    </div>
+  </div>
+
+  <div class="btns">
+    <button class="primary" id="btn-gen" onclick="generate()">Сгенерировать и скачать .apkg</button>
+    <button onclick="clearAll()">Очистить</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="preview-wrap" id="prev-wrap">
+    <div class="preview-head">
+      Карточки
+      <span class="count-badge" id="count-badge">0</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Front — русское предложение</th>
+          <th>Back — оригинал EN + слово + IPA + перевод</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+// ─── Parser ────────────────────────────────────────────────
+function parseInput(raw) {
+  const cards = [];
+  const clean = raw
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/^\s*\*\s+/gm, '')
+    .replace(/^\s*-\s+/gm, '');
+
+  const blocks = clean.split(/\n(?=\s*\d+\.\s)/);
+
+  for (const block of blocks) {
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) continue;
+
+    let headerLine = '', sentLine = '', transLine = '';
+
+    for (const line of lines) {
+      if (/^sentence:/i.test(line)) sentLine = line;
+      else if (/^translation:/i.test(line)) transLine = line;
+      else if (!headerLine && /—/.test(line)) headerLine = line;
+      else if (!headerLine) headerLine = line;
+    }
+
+    if (!sentLine || !transLine) continue;
+
+    const sentRaw = sentLine.replace(/^sentence:\s*/i, '').trim();
+    const englishSent = sentRaw.replace(/^["«]|["»]$/g, '').trim();
+    const russianSent = transLine.replace(/^translation:\s*/i, '').trim();
+
+    const hClean = headerLine.replace(/^\d+\.\s*/, '').trim().replace(/\.$/, '');
+    const dashIdx = hClean.indexOf('—');
+    let phrase = hClean, ruMeaning = '';
+    if (dashIdx !== -1) {
+      phrase = hClean.slice(0, dashIdx).trim();
+      ruMeaning = hClean.slice(dashIdx + 1).trim();
+    }
+
+// ... внутри цикла по блокам ...
+    const front = russianSent;
+    // Формируем красивый HTML для задней стороны
+    const back = `<div class="sentence">${englishSent}</div><hr>` + 
+                 `<div class="word" style="color: #5c4ba3; font-weight: bold;">${phrase}</div>` + 
+                 `<div class="translation" style="color: #666; font-size: 0.9em;">${ruMeaning}</div>`;
+
+    cards.push({ front, back, phrase, ruMeaning, englishSent, russianSent });
+  }
+  return cards;
+}
+
+// ─── Status helper ─────────────────────────────────────────
+function setStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.className = 'status ' + type;
+  el.innerHTML = msg;
+  el.style.display = 'block';
+}
+
+function hideStatus() {
+  document.getElementById('status').style.display = 'none';
+}
+
+// ─── APKG builder ──────────────────────────────────────────
+async function buildApkg(cards, deckName) {
+  const SQL = await initSqlJs({
+    locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}`
+  });
+
+  const db = new SQL.Database();
+  const now = Math.floor(Date.now() / 1000);
+  const deckId = Date.now();
+  const modelId = deckId + 1;
+
+  // Создание таблиц (стандарт Anki)
+  db.run(`CREATE TABLE col (id integer primary key, crt integer not null, mod integer not null, scm integer not null, ver integer not null, dty integer not null, usn integer not null, ls integer not null, conf text not null, models text not null, decks text not null, dconf text not null, tags text not null)`);
+  db.run(`CREATE TABLE notes (id integer primary key, guid text not null, mid integer not null, mod integer not null, usn integer not null, tags text not null, flds text not null, sfld text not null, csum integer not null, flags integer not null, data text not null)`);
+  db.run(`CREATE TABLE cards (id integer primary key, nid integer not null, did integer not null, ord integer not null, mod integer not null, usn integer not null, type integer not null, queue integer not null, due integer not null, ivl integer not null, factor integer not null, reps integer not null, lapses integer not null, left integer not null, odue integer not null, odid integer not null, flags integer not null, data text not null)`);
+  db.run(`CREATE TABLE revlog (id integer primary key, cid integer not null, usn integer not null, ease integer not null, ivl integer not null, lastIvl integer not null, factor integer not null, time integer not null, type integer not null)`);
+  db.run(`CREATE TABLE graves (usn integer not null, oid integer not null, type integer not null)`);
+
+  // ── Исправленный Model (Note Type) ──
+  const model = {
+    [modelId]: {
+      id: modelId,
+      name: "Basic-Auto",
+      type: 0,
+      mod: now,
+      usn: -1,
+      sortf: 0,
+      did: deckId,
+      tmpls: [{
+        name: "Card 1",
+        ord: 0,
+        qfmt: "{{Front}}",
+        afmt: "{{FrontSide}}<hr id=answer>{{Back}}",
+        did: null,
+        bqfmt: "",
+        bafmt: "",
+        bfont: "",
+        bsize: 0
+      }],
+      flds: [
+        { name: "Front", ord: 0, sticky: false, rtl: false, font: "Arial", size: 20, media: [] },
+        { name: "Back",  ord: 1, sticky: false, rtl: false, font: "Arial", size: 20, media: [] }
+      ],
+      css: `
+      .card {
+        font-family: -apple-system, system-ui, sans-serif;
+        font-size: 20px;
+        text-align: center;
+        color: #222;
+        background-color: #fdfdfd;
+        line-height: 1.5;
+      }
+      hr { border: none; border-top: 1px solid #ddd; margin: 10px 0; }
+      `,
+      latexPre: "\\documentclass[12pt]{article}\n\\special{papersize=3in,5in}\n\\usepackage[utf8]{inputenc}\n\\usepackage{amssymb,amsmath}\n\\pagestyle{empty}\n\\setlength{\\parindent}{0in}\n\\begin{document}\n",
+      latexPost: "\\end{document}",
+      tags: [],
+      vers: [],
+      req: [[0, "all", [0]]] // КРИТИЧЕСКИ ВАЖНО: Массив требований (карта 0 активна, если заполнено поле 0)
+    }
+  };
+
+  // ── Исправленный Deck ──
+  const decks = {
+    "1": { // Дефолтная колода всегда должна быть
+        id: 1, mod: now, name: "Default", usn: 0, lrnToday: [0, 0], revToday: [0, 0], newToday: [0, 0], timeToday: [0, 0], collapsed: false, browserCollapsed: false, desc: "", dyn: 0, conf: 1, extendNew: 10, extendRev: 50
+    },
+    [deckId]: {
+      id: deckId,
+      name: deckName,
+      mod: now,
+      usn: -1,
+      lrnToday: [0, 0],
+      revToday: [0, 0],
+      newToday: [0, 0],
+      timeToday: [0, 0],
+      collapsed: false,
+      browserCollapsed: false,
+      desc: "",
+      dyn: 0,
+      conf: 1,
+      extendNew: 10,
+      extendRev: 50
+    }
+  };
+
+  // ── Исправленный DConf (Настройки колоды) ──
+  const dconf = {
+    "1": {
+      id: 1,
+      name: "Default",
+      mod: now,
+      usn: 0,
+      maxTaken: 60,
+      autoplay: true,
+      replayq: true,
+      timer: 0,
+      lapse: { leechFails: 8, delays: [10], minInt: 1, mult: 0, leechAction: 0 },
+      rev: { perDay: 200, fuzz: 0.05, ivlFct: 1, maxIvl: 36500, ease4: 1.3, bury: false, minSpace: 1 },
+      new: { perDay: 20, delays: [1, 10], separate: true, ints: [1, 4, 7], initialFactor: 2500, bury: false, order: 1 }
+    }
+  };
+
+  const conf = {
+      nextPos: 1,
+      estTimes: true,
+      activeDecks: [1],
+      sortType: "noteFld",
+      timeLim: 0,
+      sortBackwards: false,
+      addToCur: true,
+      curDeck: deckId,
+      curModel: String(modelId)
+  };
+
+  // Запись в таблицу col
+  db.run(`INSERT INTO col VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+    1,          // id
+    now,        // crt (created)
+    now,        // mod (modified)
+    now,        // scm (schema mod)
+    11,         // ver (версия БД)
+    0,          // dty
+    -1,         // usn
+    0,          // ls
+    JSON.stringify(conf),
+    JSON.stringify(model),
+    JSON.stringify(decks),
+    JSON.stringify(dconf),
+    "{}"        // tags
+  ]);
+
+  // Вставка карточек
+  const SEP = '\x1f'; 
+  for (let i = 0; i < cards.length; i++) {
+    const c = cards[i];
+    const nid = deckId + 1000 + i;
+    const cid = deckId + 2000 + i;
+    const guid = Math.random().toString(36).substring(2, 12);
+    const csum = simpleHash(c.front);
+
+    db.run(`INSERT INTO notes VALUES (?,?,?,?,?,?,?,?,?,?,?)`, [
+      nid, guid, modelId, now, -1, "", 
+      c.front + SEP + c.back,
+      c.front,
+      csum, 0, ""
+    ]);
+
+    db.run(`INSERT INTO cards VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+      cid, nid, deckId, 0, now, -1,
+      0, 0, i, 
+      0, 0, 0, 0, 0, 0, 0, 0, ""
+    ]);
+  }
+
+  const dbBytes = db.export();
+  const zip = new JSZip();
+  zip.file("collection.anki2", dbBytes);
+  zip.file("media", "{}");
+
+  return await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+}
+
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash) % 1000000000;
+}
+
+// ─── Main ──────────────────────────────────────────────────
+let sqlReady = false;
+
+async function generate() {
+  const raw = document.getElementById('inp').value;
+  const deckName = document.getElementById('deckName').value.trim() || 'My Vocabulary';
+  const btn = document.getElementById('btn-gen');
+
+  if (!raw.trim()) {
+    setStatus('Вставь текст со словами слева.', 'err');
+    return;
+  }
+
+  const cards = parseInput(raw);
+
+  if (!cards.length) {
+    setStatus('Не удалось распознать карточки. Убедись, что каждый блок содержит строки <b>Sentence:</b> и <b>Translation:</b>', 'err');
+    return;
+  }
+
+  // Preview text
+  const prevLines = cards.map((c, i) =>
+    `[${i+1}] FRONT: ${c.front}\n    BACK:  ${c.back.replace(/\n/g, ' | ')}`
+  ).join('\n\n');
+  document.getElementById('preview-text').value = prevLines;
+
+  // Table preview
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = cards.map((c, i) =>
+      `<tr>
+        <td class="num">${i+1}</td>
+        <td>${c.front}</td> 
+        <td class="back-cell">${c.back}</td>
+      </tr>`
+  ).join('');
+
+  document.getElementById('count-badge').textContent = cards.length;
+  document.getElementById('prev-wrap').style.display = 'block';
+
+  // Build apkg
+  btn.disabled = true;
+  setStatus('<span class="spinner"></span>Генерирую SQLite базу и упаковываю .apkg...', 'loading');
+
+  try {
+    const blob = await buildApkg(cards, deckName);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = deckName.replace(/[^a-zA-Zа-яА-Я0-9_\- ]/g, '') + '.apkg';
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus(`Готово! Скачано <b>${cards.length} карточек</b> → <b>${a.download}</b>. Двойной клик по файлу — Anki Desktop откроет его автоматически.`, 'ok');
+  } catch (e) {
+    console.error(e);
+    setStatus('Ошибка при генерации: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function clearAll() {
+  document.getElementById('inp').value = '';
+  document.getElementById('preview-text').value = '';
+  document.getElementById('prev-wrap').style.display = 'none';
+  document.getElementById('tbody').innerHTML = '';
+  hideStatus();
+}
+</script>
+</body>
+</html>
