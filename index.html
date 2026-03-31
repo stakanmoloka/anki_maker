@@ -83,6 +83,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    height: 500px;
   }
 
   .panel-head {
@@ -115,14 +116,14 @@
     flex: 1;
     border: none;
     outline: none;
-    resize: none;
+    resize: vertical; /* Разрешим пользователю самому растягивать вниз, если нужно */
     padding: 14px;
     font-size: 12.5px;
     line-height: 1.75;
     background: transparent;
     color: var(--text);
     font-family: inherit;
-    height: 320px;
+    height: 500px; /* Было 320px — теперь поле стало значительно выше */
   }
 
   textarea::placeholder { color: var(--muted); }
