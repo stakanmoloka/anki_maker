@@ -338,6 +338,7 @@
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('sub2anki')">sub2anki</button>
     <button class="tab-btn" onclick="switchTab('words2anki')">words2anki</button>
+    <button class="tab-btn" onclick="switchTab('triples2anki')">triples2anki</button>
   </div>
 
   <!-- ══════════════════════════════════════════════
@@ -452,6 +453,81 @@
           </tr>
         </thead>
         <tbody id="w-tbody"></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!--
+       TAB 3 - triples2anki
+  -->
+  <div class="tab-panel" id="tab-triples2anki">
+
+    <div class="deck-row">
+      <label>Название колоды:</label>
+      <input type="text" id="t-deckName" value="My Vocabulary" placeholder="My Vocabulary" />
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <div class="panel-head">
+          <span class="dot"></span>
+          <span>Вставь WORD-блоки</span>
+        </div>
+        <textarea id="t-inp" placeholder="# WORD: agree
+
+## 1. Cloze deletion
+Front:
+I don't think we'll ever [...] on which movie to watch tonight; we have such different tastes.
+
+Back:
+agree
+
+## 2. English -> meaning in English
+Front:
+To have the same opinion or belief as another person.
+
+Back:
+agree
+
+## 3. Collocation card
+Front:
+completely [...] with someone
+
+Back:
+agree"></textarea>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="dot green"></span>
+          <span>Предпросмотр карточек</span>
+        </div>
+        <textarea id="t-preview-text" readonly placeholder="Здесь появится предпросмотр..."></textarea>
+      </div>
+    </div>
+
+    <div class="btns">
+      <button class="primary" id="t-btn-gen" onclick="generateTriples()">Сгенерировать и скачать .apkg</button>
+      <button onclick="clearTriples()">Очистить</button>
+    </div>
+
+    <div class="status" id="t-status"></div>
+
+    <div class="preview-wrap" id="t-prev-wrap">
+      <div class="preview-head">
+        Карточки
+        <span class="count-badge" id="t-count-badge">0</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Type / Word</th>
+            <th>Front</th>
+            <th>Back</th>
+          </tr>
+        </thead>
+        <tbody id="t-tbody"></tbody>
       </table>
     </div>
 
@@ -723,6 +799,125 @@ function clearWords() {
 // ═══════════════════════════════════════════════════════
 //  Shared: APKG builder + helpers
 // ═══════════════════════════════════════════════════════
+// TRIPLES2ANKI - # WORD blocks with cloze, meaning, collocation cards
+function parseTriples(raw) {
+  const cards = [];
+  const wordRegex = /(?:^|\n)\s*#\s*WORD:\s*([^\r\n]+)\s*[\r\n]+([\s\S]*?)(?=\n\s*#\s*WORD:|$)/g;
+  let wordMatch;
+
+  while ((wordMatch = wordRegex.exec(raw)) !== null) {
+    const word = wordMatch[1].trim();
+    const block = wordMatch[2];
+    if (!word || !block.trim()) continue;
+
+    const sectionRegex = /(?:^|\n)\s*##\s*\d+\.\s*([^\r\n]+)\s*[\r\n]+([\s\S]*?)(?=\n\s*##\s*\d+\.|$)/g;
+    let sectionMatch;
+
+    while ((sectionMatch = sectionRegex.exec(block)) !== null) {
+      const type = sectionMatch[1].trim();
+      const body = sectionMatch[2].trim();
+      const plainFront = readCardField(body, 'Front');
+      const plainBack = readCardField(body, 'Back') || word;
+
+      if (!plainFront || !plainBack) continue;
+
+      cards.push({
+        front: formatCardText(plainFront),
+        back: formatCardText(plainBack),
+        word,
+        type,
+        plainFront,
+        plainBack
+      });
+    }
+  }
+
+  return cards;
+}
+
+function readCardField(text, fieldName) {
+  const re = new RegExp('(?:^|\\n)\\s*' + fieldName + '\\s*:\\s*([\\s\\S]*?)(?=\\n\\s*(?:Front|Back)\\s*:|$)', 'i');
+  const match = text.match(re);
+  return match ? match[1].trim() : '';
+}
+
+function formatCardText(text) {
+  return esc(text).replace(/\r?\n/g, '<br>');
+}
+
+function setTStatus(msg, type) {
+  const el = document.getElementById('t-status');
+  el.className = 'status ' + type;
+  el.innerHTML = msg;
+  el.style.display = 'block';
+}
+
+function hideTStatus() {
+  document.getElementById('t-status').style.display = 'none';
+}
+
+async function generateTriples() {
+  const raw = document.getElementById('t-inp').value;
+  const deckName = document.getElementById('t-deckName').value.trim() || 'My Vocabulary';
+  const btn = document.getElementById('t-btn-gen');
+
+  if (!raw.trim()) {
+    setTStatus('Вставь WORD-блоки сначала.', 'err');
+    return;
+  }
+
+  const cards = parseTriples(raw);
+  if (!cards.length) {
+    setTStatus('Не удалось распознать карточки. Нужен формат: <b># WORD: word</b>, секции <b>## 1...</b>, затем <b>Front:</b> и <b>Back:</b>.', 'err');
+    return;
+  }
+
+  const prevLines = cards.map((c, i) =>
+    `[${i+1}] ${c.word} / ${c.type}\n    FRONT: ${c.plainFront}\n    BACK:  ${c.plainBack}`
+  ).join('\n\n');
+  document.getElementById('t-preview-text').value = prevLines;
+
+  const tbody = document.getElementById('t-tbody');
+  tbody.innerHTML = cards.map((c, i) =>
+    `<tr>
+      <td class="num">${i+1}</td>
+      <td>${esc(c.type)}<br><span style="color:#888;">${esc(c.word)}</span></td>
+      <td>${esc(c.plainFront)}</td>
+      <td class="back-cell">${esc(c.plainBack)}</td>
+    </tr>`
+  ).join('');
+
+  document.getElementById('t-count-badge').textContent = cards.length;
+  document.getElementById('t-prev-wrap').style.display = 'block';
+
+  btn.disabled = true;
+  setTStatus('<span class="spinner"></span>Генерирую SQLite базу и упаковываю .apkg...', 'loading');
+
+  try {
+    const blob = await buildApkg(cards, deckName);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = deckName.replace(/[^a-zA-Zа-яА-Я0-9_\- ]/g, '') + '.apkg';
+    a.click();
+    URL.revokeObjectURL(url);
+    setTStatus(`Готово! Скачано <b>${cards.length} карточек</b> -> <b>${a.download}</b>.`, 'ok');
+  } catch (e) {
+    console.error(e);
+    setTStatus('Ошибка при генерации: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function clearTriples() {
+  document.getElementById('t-inp').value = '';
+  document.getElementById('t-preview-text').value = '';
+  document.getElementById('t-prev-wrap').style.display = 'none';
+  document.getElementById('t-tbody').innerHTML = '';
+  hideTStatus();
+}
+
 async function buildApkg(cards, deckName) {
   const SQL = await initSqlJs({
     locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}`
